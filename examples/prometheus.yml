@@ -1,0 +1,24 @@
+# This is an example configuration file for prometheus to scrape the exporter
+
+scrape_configs:
+  - job_name: "nmos-exporter"
+
+    metrics_path: /probe
+
+    static_configs:
+    # Set IP addresses and port of NMOS nodes here
+      - targets:
+          - localhost:8080
+
+    relabel_configs:
+      # Pass the original target as the "target" query param
+      - source_labels: [__address__]
+        target_label: __param_target
+
+      # Set instance label to the probed target
+      - source_labels: [__param_target]
+        target_label: instance
+
+      # Set nmos-exporter address and port here
+      - target_label: __address__
+        replacement: localhost:9080
