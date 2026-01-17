@@ -1,5 +1,7 @@
 # Prometheus NMOS BCP-008 Exporter
 
+[![Docker Pulls](https://img.shields.io/docker/pulls/tischr/nmos-exporter)](https://hub.docker.com/r/tischr/nmos-exporter)
+
 An exporter that queries BCP-008 sender and receiver information of NMOS nodes using IS-12, and exposes them as Prometheus metrics. 
 
 ## Installation
