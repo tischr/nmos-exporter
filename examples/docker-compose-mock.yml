@@ -15,7 +15,7 @@ services:
     restart: unless-stopped
 
   nmos_exporter:
-    image: nmos-exporter
+    image: tischr/nmos-exporter:latest
     container_name: nmos_exporter
     network_mode: "host"
     restart: unless-stopped
