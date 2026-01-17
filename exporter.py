@@ -3,6 +3,7 @@ import re
 import logging
 import requests
 import json
+import os
 
 from flask import Flask, request, Response
 from urllib.parse import urljoin
@@ -14,8 +15,9 @@ from is12client import IS12Client, DeviceNavigator
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-LISTEN_HOST = '0.0.0.0'
-LISTEN_PORT = 9080
+LISTEN_HOST = os.getenv('LISTEN_HOST', '0.0.0.0')
+LISTEN_PORT = int(os.getenv('LISTEN_PORT', '9880'))
+
 
 registry = CollectorRegistry(auto_describe=True)
 gauge_cache = {}
