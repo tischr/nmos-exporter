@@ -45,27 +45,20 @@ This option is useful for local development, or envrionments where Docker is not
 The exporter queries the NMOS nodes at scrape time, using the target parameter (similar to the snmp-exporter). An example prometheus.yml can be found under /examples. 
 
 ```yml
-- job_name: "nmos-exporter"
-
+scrape_configs:
+  - job_name: "nmos-exporter"
     metrics_path: /probe
-
     static_configs:
-    # Set IP addresses and port of NMOS nodes here
       - targets:
-          - your-nmos-node:8080
-
+          - nmos-node-1:8080
+          - nmos-node-2:8080
     relabel_configs:
-      # Pass the original target as the "target" query param
       - source_labels: [__address__]
         target_label: __param_target
-
-      # Set instance label to the probed target
       - source_labels: [__param_target]
         target_label: instance
-
-      # Set nmos-exporter address and port here
       - target_label: __address__
-        replacement: ip-of-exporter:9080
+        replacement: nmos-exporter:9080
 ```
 
 ## Contributing
