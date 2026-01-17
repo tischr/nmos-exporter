@@ -4,21 +4,45 @@ An exporter that queries BCP-008 sender and receiver information of NMOS nodes u
 
 ## Installation
 
-Build and run the docker image. An example docker-compose.yml, including Prometheus can be found under /examples.
+### Docker
+
+Pull and run the docker image from dockerhub. An example docker-compose.yml, including Prometheus can be found under /examples.
+
+```bash
+docker run -p 9080:9080 tischr/nmos-exporter
+```
+Or build the image locally 
 
 ```bash
 git clone git@github.com:tischr/nmos-exporter.git && cd ./nmos-exporter
-docker build -t nmos-exporter .
+docker build -t tischr/nmos-exporter:latest .
 cd ./examples
-docker compose up -d 
+docker run -p 9080:9080 tischr/nmos-exporter
 ```
-To test against the [nmos-device-control-mock](https://github.com/AMWA-TV/nmos-device-control-mock), the exporter needs to run without network seperation in network_mode host (the mock device ws points to localhost). 
+To test against the [nmos-device-control-mock](https://github.com/AMWA-TV/nmos-device-control-mock), the exporter needs to run without network separation in network mode host, see examples/docker-compose-mock.yml (the mock device ws points to localhost). 
+
+### Python
+
+If you prefer to run the exporter without Docker, you can run it directly with Python. 
+
+Requirements: 
+* Python 3.12+
+
+```bash
+git clone git@github.com:tischr/nmos-exporter.git && cd ./nmos-exporter
+python -m venv .venv
+source .venv/bin/activate
+pip install requirements.txt
+python exporter.py
+```
+
+This option is useful for local development, or envrionments where Docker is not available.
 
 ## Usage
 
 The exporter queries the NMOS nodes at scrape time, using the target parameter (similar to the snmp-exporter). An example prometheus.yml can be found under /examples. 
 
-```python
+```yml
 - job_name: "nmos-exporter"
 
     metrics_path: /probe
