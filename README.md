@@ -2,13 +2,13 @@
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/tischr/nmos-exporter)](https://hub.docker.com/r/tischr/nmos-exporter)
 
-An exporter that queries BCP-008 sender and receiver information of NMOS nodes using IS-12, and exposes them as Prometheus metrics. 
+A Prometheus Exporter that queries BCP-008 sender and receiver information of NMOS nodes using IS-12, and exposes them as Prometheus metrics. 
 
 ## Installation
 
 ### Docker
 
-Pull and run the docker image from dockerhub. An example docker-compose.yml, including Prometheus can be found under /examples.
+Pull and run the docker image from dockerhub. An example docker-compose.yml, including Prometheus can be found under [/examples](https://github.com/tischr/nmos-exporter/tree/main/examples).
 
 ```bash
 docker run -p 9080:9080 tischr/nmos-exporter
@@ -19,9 +19,8 @@ Or build the image locally
 git clone git@github.com:tischr/nmos-exporter.git && cd ./nmos-exporter
 docker build -t tischr/nmos-exporter:latest .
 cd ./examples
-docker run -p 9080:9080 tischr/nmos-exporter
+docker compose up -d 
 ```
-To test against the [nmos-device-control-mock](https://github.com/AMWA-TV/nmos-device-control-mock), the exporter needs to run without network separation in network mode host, see examples/docker-compose-mock.yml (the mock device ws points to localhost). 
 
 ### Python
 
@@ -42,7 +41,7 @@ This option is useful for local development, or envrionments where Docker is not
 
 ## Usage
 
-The exporter queries the NMOS nodes at scrape time, using the target parameter (similar to the snmp-exporter). An example prometheus.yml can be found under /examples. 
+The exporter queries the NMOS nodes at scrape time, using the target parameter (similar to the snmp-exporter). An example prometheus.yml can be found under .[/examples](https://github.com/tischr/nmos-exporter/tree/). 
 
 ```yml
 scrape_configs:
@@ -60,6 +59,8 @@ scrape_configs:
       - target_label: __address__
         replacement: nmos-exporter:9080
 ```
+
+You can test the exporter against the [nmos-device-control-mock](https://github.com/AMWA-TV/nmos-device-control-mock). 
 
 ## Contributing
 
