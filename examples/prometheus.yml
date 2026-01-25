@@ -8,7 +8,7 @@ scrape_configs:
     static_configs:
     # Set IP addresses and port of NMOS nodes here
       - targets:
-          - localhost:8080
+          - 172.31.9.171:8080
 
     relabel_configs:
       # Pass the original target as the "target" query param
@@ -21,4 +21,4 @@ scrape_configs:
 
       # Set nmos-exporter address and port here
       - target_label: __address__
-        replacement: localhost:9080
+        replacement: nmos_exporter:9080
