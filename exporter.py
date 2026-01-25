@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 LISTEN_HOST = os.getenv('LISTEN_HOST', '0.0.0.0')
-LISTEN_PORT = int(os.getenv('LISTEN_PORT', '9880'))
+LISTEN_PORT = int(os.getenv('LISTEN_PORT', '9080'))
 
 
 registry = CollectorRegistry(auto_describe=True)
