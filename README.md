@@ -1,6 +1,7 @@
 # Prometheus NMOS BCP-008 Exporter
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/tischr/nmos-exporter)](https://hub.docker.com/r/tischr/nmos-exporter)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/license/MIT)
 
 A Prometheus Exporter that queries BCP-008 sender and receiver information of NMOS nodes using IS-12, and exposes them as Prometheus metrics. 
 
@@ -41,7 +42,7 @@ This option is useful for local development, or envrionments where Docker is not
 
 ## Usage
 
-The exporter queries the NMOS nodes at scrape time, using the target parameter (similar to the snmp-exporter). An example prometheus.yml can be found under .[/examples](https://github.com/tischr/nmos-exporter/tree/). 
+The exporter queries the NMOS nodes at scrape time, using the target parameter (similar to the snmp-exporter). An example prometheus.yml can be found under .[examples/prometheus.yml](examples/prometheus.yml). 
 
 ```yml
 scrape_configs:
@@ -66,3 +67,6 @@ You can test the exporter against the [nmos-device-control-mock](https://github.
 
 Pull requests are welcome.
 
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
