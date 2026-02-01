@@ -9,7 +9,7 @@ A Prometheus Exporter that queries BCP-008 sender and receiver information of NM
 
 ### Docker
 
-Pull and run the docker image from dockerhub. An example docker-compose.yml, including Prometheus can be found under [/examples](https://github.com/tischr/nmos-exporter/tree/main/examples).
+Pull and run the docker image from dockerhub. An example docker-compose.yml, including Prometheus can be found under [examples/](examples/).
 
 ```bash
 docker run -p 9080:9080 tischr/nmos-exporter
@@ -42,7 +42,7 @@ This option is useful for local development, or envrionments where Docker is not
 
 ## Usage
 
-The exporter queries the NMOS nodes at scrape time, using the target parameter (similar to the snmp-exporter). An example prometheus.yml can be found under .[examples/prometheus.yml](examples/prometheus.yml). 
+The exporter queries the NMOS nodes at scrape time, using the target parameter (similar to the snmp-exporter). An example prometheus.yml can be found under [examples/prometheus.yml](examples/prometheus.yml). 
 
 ```yml
 scrape_configs:
