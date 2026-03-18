@@ -22,5 +22,53 @@ services:
       - "9080:9080"
     restart: unless-stopped
 
+  nmos-device-control-mock-01:
+    image: nmos-device-control-mock
+    container_name: nmos_node_01
+    volumes:
+      - ./code/config/config-1.json:/app/dist/server/config/config.json
+    ports:
+      - 8081:8080 
+
+  nmos-device-control-mock-02:
+    container_name: nmos_node_02 
+    volumes:
+      - ./code/config/config-2.json:/app/dist/server/config/config.json
+    ports:
+      - 8082:8080
+    image: nmos-device-control-mock
+
+  nmos-device-control-mock-03:
+    image: nmos-device-control-mock
+    container_name: nmos_node_03
+    volumes:
+      - ./code/config/config-3.json:/app/dist/server/config/config.json
+    ports:
+      - 8083:8080 
+
+  nmos-device-control-mock-04:
+    container_name: nmos_node_04 
+    volumes:
+      - ./code/config/config-4.json:/app/dist/server/config/config.json
+    ports:
+      - 8084:8080
+    image: nmos-device-control-mock
+
+  nmos-device-control-mock-05:
+    image: nmos-device-control-mock
+    container_name: nmos_node_05
+    volumes:
+      - ./code/config/config-5.json:/app/dist/server/config/config.json
+    ports:
+      - 8085:8080 
+
+  nmos-device-control-mock-06:
+    container_name: nmos_node_06 
+    volumes:
+      - ./code/config/config-6.json:/app/dist/server/config/config.json
+    ports:
+      - 8086:8080
+    image: nmos-device-control-mock
+
 volumes:
   prometheus_data:
