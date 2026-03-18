@@ -13,4 +13,6 @@ jobs:
     - name: build
       run: docker build . --file Dockerfile --tag tischr/nmos-exporter:latest
     - name: push
-      run: docker push tischr/nmos-exporter:latest
+      run: |
+        docker login -u tischr -p ${{ secrets.DOCKERHUB_TOKEN }}
+        docker push tischr/nmos-exporter:latest
