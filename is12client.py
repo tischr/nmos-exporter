@@ -347,14 +347,18 @@ class IS12Client:
         Returns:
             Property value or None
         """
+        found_prop = None
         for prop in block.properties:
             if property_name == prop.name:
-                level = prop.id['level']
-                index = prop.id['index']
+                found_prop = prop
                 break
-            else:
-               logger.warning(f"Could not find property: {property_name} in block: {block.role}") 
-               return None
+        
+        if not found_prop:
+            logger.warning(f"Could not find property: {property_name} in block: {block.role}") 
+            return None
+
+        level = found_prop.id['level']
+        index = found_prop.id['index']
 
         commands = [{
             "oid": block.oid,
