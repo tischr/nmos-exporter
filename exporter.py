@@ -19,9 +19,6 @@ LISTEN_HOST = os.getenv('LISTEN_HOST', '0.0.0.0')
 LISTEN_PORT = int(os.getenv('LISTEN_PORT', '9080'))
 
 
-registry = CollectorRegistry(auto_describe=True)
-gauge_cache = {}
-
 def sanitize_metric_name(name):
     # Turns camelCase into snake_case
     s = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
@@ -61,6 +58,9 @@ def get_is12_ws_endpoint(device_address: str):
 
 async def update_nmos_metrics(target_ws_url):
     # Fetches and Updates BCP-008 metric
+    registry = CollectorRegistry(auto_describe=True)
+    gauge_cache = {}
+
     client = IS12Client(target_ws_url)
     await client.connect()
 
