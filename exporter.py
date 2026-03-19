@@ -34,7 +34,7 @@ class ClientCache:
         now = time.time()
         if ws_url in self.clients:
             client, last_used = self.clients[ws_url]
-            if client.ws and client.ws.open:
+            if client.ws and getattr(client.ws, 'state', None) == 1:
                 self.clients[ws_url] = (client, now)
                 return client
             else:

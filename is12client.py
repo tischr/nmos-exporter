@@ -103,7 +103,7 @@ class IS12Client:
         
     async def connect(self):
         """Establish WebSocket connection"""
-        if self.ws and self.ws.open:
+        if self.ws and getattr(self.ws, 'state', None) == 1:
             logger.warning("WebSocket is already connected.")
             return
 
