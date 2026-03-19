@@ -18,39 +18,20 @@ class MessageType(IntEnum):
     NOTIFICATION = 2
 
 
-class MethodId(IntEnum):
-    """
-    These are the '1mX' identifiers 
-    """
-    # 1m1
-    GET = 1
-    # 1m2
-    SET = 2
-    # 1m3
-    GET_SEQUENCE_ITEM = 3
-    # 1m4
-    SET_SEQUENCE_ITEM = 4
-    # 1m5
-    ADD_SEQUENCE_ITEM = 5
-    # 1m6
-    REMOVE_SEQUENCE_ITEM = 6
-    # 1m7
-    GET_SEQUENCE_LENGTH = 7
-    # 1m8
-    GET_SEQUENCE_VALUES = 8 
+class ClassLevel(IntEnum):
+    """IS-12 Class Levels"""
+    NC_OBJECT = 1
+    NC_BLOCK = 2
+    NC_CLASS_MANAGER = 3
+    NC_DEVICE_MANAGER = 4
 
-class RoleLevel(IntEnum):
-    """
-    These are the '2mX' identifirs 
-    """
-    # 2m1
+
+class MethodId(IntEnum):
+    """Method Indices"""
+    GET = 1
+    SET = 2
     GET_MEMBER_DESCRIPTORS = 1
-    # 2m2
-    FIND_MEMBERS_BY_PATH = 2
-    # 2m3
-    FIND_MEMBERS_BY_ROLE = 3
-    # 2m4
-    FIND_MEMBERS_BY_CLASS_ID = 4
+    GET_CLASS_DESCRIPTOR = 1
 
 @dataclass
 class Property:
@@ -225,12 +206,12 @@ class IS12Client:
         commands = [{
             "oid": block_oid,
             "methodId": {
-                "level": RoleLevel.GET_MEMBER_DESCRIPTORS,
-                "index": MethodId.GET
+                "level": ClassLevel.NC_BLOCK,
+                "index": MethodId.GET_MEMBER_DESCRIPTORS
             },
             "arguments": {
                 "id": {
-                    "level": 2,
+                    "level": ClassLevel.NC_BLOCK,
                     "index": 2  # members property (2p2)
                 }
             }
@@ -277,8 +258,8 @@ class IS12Client:
         commands = [{
             "oid": class_manager_oid,
             "methodId": {
-                "level": RoleLevel.FIND_MEMBERS_BY_ROLE,
-                "index": MethodId.GET
+                "level": ClassLevel.NC_CLASS_MANAGER,
+                "index": MethodId.GET_CLASS_DESCRIPTOR
             },
             "arguments": {
                 "classId": block.class_id, 
@@ -370,7 +351,7 @@ class IS12Client:
         commands = [{
             "oid": block.oid,
             "methodId": {
-                "level": RoleLevel.GET_MEMBER_DESCRIPTORS,
+                "level": ClassLevel.NC_OBJECT,
                 "index": MethodId.GET
             },
             "arguments": {
@@ -406,7 +387,7 @@ class IS12Client:
             commands.append({
                 "oid": block.oid,
                 "methodId": {
-                    "level": RoleLevel.GET_MEMBER_DESCRIPTORS,
+                    "level": ClassLevel.NC_OBJECT,
                     "index": MethodId.GET
                 },
                 "arguments": {
