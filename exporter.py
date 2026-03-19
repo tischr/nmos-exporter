@@ -20,8 +20,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-LISTEN_HOST = os.getenv('LISTEN_HOST', '0.0.0.0')
-LISTEN_PORT = int(os.getenv('LISTEN_PORT', '9080'))
 CONNECTION_TTL = int(os.getenv('CONNECTION_TTL', '300')) # 5 minutes default
 
 class ClientCache:
@@ -195,5 +193,4 @@ async def index():
     """, media_type="text/html")
 
 if __name__ == '__main__':
-    logger.info(f"Starting NMOS IS-12 Exporter on http://{LISTEN_HOST}:{LISTEN_PORT}")
-    uvicorn.run(app, host=LISTEN_HOST, port=LISTEN_PORT, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port="9080", log_level="info")
