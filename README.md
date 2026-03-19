@@ -19,13 +19,12 @@ Or build the image locally
 ```bash
 git clone git@github.com:tischr/nmos-exporter.git && cd ./nmos-exporter
 docker build -t tischr/nmos-exporter:latest .
-cd ./examples
-docker compose up -d 
+docker run -p 9080:9080 tischr/nmos-exporter
 ```
 
 ### Python
 
-If you prefer to run the exporter without Docker, you can run it directly with Python. 
+If you prefer to run the exporter without Docker:
 
 Requirements: 
 * Python 3.12+
@@ -34,15 +33,15 @@ Requirements:
 git clone git@github.com:tischr/nmos-exporter.git && cd ./nmos-exporter
 python -m venv .venv
 source .venv/bin/activate
-pip install requirements.txt
-python exporter.py
+pip install -r requirements.txt
+uvicorn exporter:app --host 0.0.0.0 --port 9080
 ```
 
 This option is useful for local development, or envrionments where Docker is not available.
 
 ## Usage
 
-The exporter queries the NMOS nodes at scrape time, using the target parameter (similar to the snmp-exporter). An example prometheus.yml can be found under [examples/prometheus.yml](examples/prometheus.yml). 
+The exporter queries the NMOS nodes at scrape time, using the `target` parameter (similar to the snmp-exporter). An example prometheus.yml can be found under [examples/prometheus.yml](examples/prometheus.yml). 
 
 ```yml
 scrape_configs:
@@ -62,6 +61,14 @@ scrape_configs:
 ```
 
 You can test the exporter against the [nmos-device-control-mock](https://github.com/AMWA-TV/nmos-device-control-mock). 
+
+## Configuration
+
+The following environment variables can be used to configure the exporter:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONNECTION_TTL` | `300` | Seconds to keep idle ws connections open |
 
 ## Contributing
 
