@@ -8,7 +8,6 @@ import websockets
 from websockets.client import WebSocketClientProtocol
 
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -169,12 +168,13 @@ class IS12Client:
                 if not future.cancelled():
                     future.set_result(response)
                     
-    async def _send_command(self, commands: List[Dict]) -> List[Dict]:
+    async def _send_command(self, commands: List[Dict], timeout: float = 10.0) -> List[Dict]:
         """
         Send command(s) and wait for response(s)
         
         Args:
             commands: List of command dictionaries
+            timeout: Maximum time to wait for responses
             
         Returns:
             List of response dictionaries
@@ -197,9 +197,16 @@ class IS12Client:
 
         await self.ws.send(json.dumps(message))
         
-        # Wait for all responses
-        responses = await asyncio.gather(*futures)
-        return responses
+        # Wait for all responses with timeout
+        try:
+            responses = await asyncio.wait_for(asyncio.gather(*futures), timeout=timeout)
+            return responses
+        except asyncio.TimeoutError:
+            # Clean up pending requests on timeout
+            for cmd in commands:
+                self._pending_requests.pop(cmd["handle"], None)
+            logger.error(f"Command timed out after {timeout}s")
+            raise
     
     async def get_block_members(self, block_oid: int, use_cache: bool = True) -> List[BlockMember]:
         """
@@ -465,8 +472,12 @@ class DeviceNavigator:
         sender_block_members = await self.client.get_block_members(sender_block.oid)
         sender_monitors = self.client.find_members_by_class(sender_block_members, [1, 2, 2, 2])
 
-        for sender_monitor in sender_monitors:
-            await self.client.gather_block_properties(self.class_manager.oid, sender_monitor)
+        # Gather properties for all monitors in parallel
+        tasks = [
+            self.client.gather_block_properties(self.class_manager.oid, monitor)
+            for monitor in sender_monitors
+        ]
+        await asyncio.gather(*tasks)
 
         return sender_monitors
 
@@ -482,8 +493,12 @@ class DeviceNavigator:
         receiver_block_members = await self.client.get_block_members(receiver_block.oid)
         receiver_monitors = self.client.find_members_by_class(receiver_block_members, [1, 2, 2, 1])
 
-        for receiver_monitor in receiver_monitors:
-            await self.client.gather_block_properties(self.class_manager.oid, receiver_monitor)
+        # Gather properties for all monitors in parallel
+        tasks = [
+            self.client.gather_block_properties(self.class_manager.oid, monitor)
+            for monitor in receiver_monitors
+        ]
+        await asyncio.gather(*tasks)
 
         return receiver_monitors
 
