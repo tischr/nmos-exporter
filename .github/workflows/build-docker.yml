@@ -1,0 +1,18 @@
+name: Docker Image CI
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout  
+      uses: actions/checkout@v4
+    - name: build
+      run: docker build . --file Dockerfile --tag tischr/nmos-exporter:latest
+    - name: push
+      run: |
+        docker login -u tischr -p ${{ secrets.DOCKERHUB_TOKEN }}
+        docker push tischr/nmos-exporter:latest
