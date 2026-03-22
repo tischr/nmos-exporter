@@ -21,9 +21,21 @@ jobs:
     steps:
     - name: checkout  
       uses: actions/checkout@v4
-    - name: build
-      run: docker build . --file Dockerfile --tag tischr/nmos-exporter:latest
-    - name: push
-      run: |
-        docker login -u tischr -p ${{ secrets.DOCKERHUB_TOKEN }}
-        docker push tischr/nmos-exporter:latest
+    - name: login
+      uses: docker/login-action@v3
+      with:
+        username: tischr
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    - name: get metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: tischr/nmos-exporter
+    - name: build and push
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
