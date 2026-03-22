@@ -7,6 +7,7 @@ import os
 import time
 
 from fastapi import FastAPI, Request, Response, HTTPException
+from contextlib import asynccontextmanager
 from urllib.parse import urljoin
 from prometheus_client import Gauge, Info, generate_latest, CollectorRegistry, CONTENT_TYPE_LATEST
 import uvicorn
@@ -147,17 +148,18 @@ async def update_nmos_metrics(target_ws_url):
         logger.error(f"Error updating metrics for {target_ws_url}: {e}")
         raise
 
-app = FastAPI(title="NMOS BCP-008 Exporter")
 
-@app.on_event("startup")
-async def startup_event():
-    # Start background cleanup task
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup
     async def cleanup_loop():
         while True:
             await asyncio.sleep(60)
             await client_cache.cleanup()
-    
     asyncio.create_task(cleanup_loop())
+    yield
+
+app = FastAPI(title="NMOS BCP-008 Exporter", lifespan=lifespan)
 
 @app.get("/probe")
 async def serve_metrics(target: str):
