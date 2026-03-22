@@ -17,6 +17,6 @@ USER exporter
 EXPOSE 9080
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:9080/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:9080/health || exit 1
 
 CMD ["uvicorn", "exporter:app", "--host", "0.0.0.0", "--port", "9080"]
