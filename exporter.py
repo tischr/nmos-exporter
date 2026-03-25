@@ -100,6 +100,7 @@ async def update_nmos_metrics(target_ws_url):
     # Fetches and Updates BCP-008 metric
     registry = CollectorRegistry(auto_describe=True)
     gauge_cache = {}
+    info_cache = {}
 
     try:
         client = await client_cache.get_client(target_ws_url)
@@ -141,6 +142,22 @@ async def update_nmos_metrics(target_ws_url):
                     
                     gauge_value = (1 if value else 0) if isinstance(value, bool) else value
                     gauge.labels(role=role, monitor_label=f'{monitor.user_label}').set(gauge_value)
+                
+                if isinstance(value, str):
+                    description = f'NMOS IS-12 string value: {key}'
+
+                    if metric_full_name not in gauge_cache:
+                        gauge = Gauge(
+                            metric_full_name,
+                            description,
+                            labelnames=['role', 'monitor_label', 'value'],
+                            registry=registry
+                        )
+                        gauge_cache[metric_full_name] = gauge
+                    else:
+                        gauge = gauge_cache[metric_full_name]
+
+                    gauge.labels(role=role, monitor_label=monitor.user_label, value=value).set(1)
 
         return generate_latest(registry)
     
