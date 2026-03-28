@@ -41,7 +41,7 @@ This option is useful for local development, or envrionments where Docker is not
 
 ## Usage
 
-The exporter queries the NMOS nodes at scrape time, using the `target` parameter (similar to the snmp-exporter). An example prometheus.yml can be found under [examples/prometheus.yml](examples/prometheus.yml). 
+The exporter queries the NMOS nodes at scrape time, using the `target` parameter (similar to the snmp-exporter). An example prometheus.yml as well as a Grafana dashboard to get started can be found under [examples/](examples/). 
 
 ```yml
 scrape_configs:
