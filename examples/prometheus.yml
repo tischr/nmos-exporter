@@ -6,19 +6,15 @@ scrape_configs:
     metrics_path: /probe
 
     static_configs:
-    # Set IP addresses and port of NMOS nodes here
+    # Set IP address and Node API port of NMOS nodes under targets
       - targets:
           - 172.31.9.171:8080
+          - 172.31.9.172:3000
 
     relabel_configs:
-      # Pass the original target as the "target" query param
       - source_labels: [__address__]
         target_label: __param_target
-
-      # Set instance label to the probed target
       - source_labels: [__param_target]
         target_label: instance
-
-      # Set nmos-exporter address and port here
       - target_label: __address__
-        replacement: nmos_exporter:9080
+        replacement: nmos_exporter:9080 # Set nmos-exporter address and port here
