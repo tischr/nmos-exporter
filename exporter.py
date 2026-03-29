@@ -64,21 +64,22 @@ def sanitize_metric_name(name):
     s = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s).lower().replace('.', '_')
 
-async def get_is12_ws_endpoint(device_address: str):
-    # Gets WS endpoint from node API 
+async def get_is12_ws_endpoint(device_address: str) -> tuple[str | None, str | None]:
+    # Gets WS endpoint from node API
+    # Returns (ws_url, error_reason) — one of the two will be None
     base_url = f"http://{device_address}"
-    
+
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             node_api_url = urljoin(base_url, "/x-nmos/node/v1.3/")
-            
+
             self_response = await client.get(urljoin(node_api_url, "self"))
             self_response.raise_for_status()
-            
+
             devices_response = await client.get(urljoin(node_api_url, "devices"))
             devices_response.raise_for_status()
             devices = devices_response.json()
-            
+
             for device in devices:
                 if "controls" in device:
                     for control in device["controls"]:
@@ -87,13 +88,22 @@ async def get_is12_ws_endpoint(device_address: str):
                             "urn:x-nmos:control:ncp/v1.1"
                         ]:
                             ws_url = control.get("href")
-                            return ws_url
-            
-            return None
-            
+                            return ws_url, None
+
+            return None, f"No IS-12 control endpoint found on {device_address} (device reachable, but no NCP control advertised)"
+
+    except httpx.ConnectError as e:
+        logger.error(f"Could not connect to {device_address}: {e}")
+        return None, f"Could not connect to {device_address}: {e}"
+    except httpx.TimeoutException as e:
+        logger.error(f"Timeout connecting to {device_address}: {e}")
+        return None, f"Timeout connecting to {device_address}"
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error from {device_address}: {e.response.status_code}")
+        return None, f"HTTP error from {device_address}: {e.response.status_code}"
     except (httpx.HTTPError, json.JSONDecodeError) as e:
-        logger.error(f"Error getting IS12 endpoint for NMOS device {device_address}: {e}")
-        return None
+        logger.error(f"Failed to query Node API on {device_address}: {e}")
+        return None, f"Failed to query Node API on {device_address}: {e}"
 
 
 async def update_nmos_metrics(target_ws_url):
@@ -183,10 +193,10 @@ async def serve_metrics(target: str):
     if not target:
         raise HTTPException(status_code=400, detail="Missing target query parameter.")
     
-    target_ws_url = await get_is12_ws_endpoint(target)
+    target_ws_url, error = await get_is12_ws_endpoint(target)
 
     if not target_ws_url:
-        raise HTTPException(status_code=400, detail="Could not find IS-12 websocket endpoint in device")
+        raise HTTPException(status_code=400, detail=error)
     
     try:
         output = await update_nmos_metrics(target_ws_url)
@@ -212,4 +222,4 @@ async def index():
     """, media_type="text/html")
 
 if __name__ == '__main__':
-    uvicorn.run(app, host="0.0.0.0", port="9080", log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=9080, log_level="info")
