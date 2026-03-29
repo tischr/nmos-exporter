@@ -12,8 +12,6 @@ MarkupSafe==3.0.3
 prometheus_client==0.23.1
 setuptools==80.9.0
 urllib3==2.6.3
-websocket==0.2.1
-websocket-client==1.9.0
 websockets==15.0.1
 zope.event==6.0
 zope.interface==8.0.1

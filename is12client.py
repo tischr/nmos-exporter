@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Any, Callable, Tuple
 from dataclasses import dataclass
 from enum import IntEnum
 import websockets
-from websockets.client import WebSocketClientProtocol
+from websockets.asyncio.client import ClientConnection
 
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ class Property:
     isSequence: bool
     constraints: str
     isDeprecated: bool
-    value = None
+    value: Optional[Any] = None
 
 @dataclass
 class BlockMember:
@@ -75,7 +75,7 @@ class IS12Client:
             ws_url: WebSocket URL (e.g., 'ws://localhost:8080/x-nmos/control/v1.0')
         """
         self.ws_url = ws_url
-        self.ws: Optional[WebSocketClientProtocol] = None
+        self.ws: Optional[ClientConnection] = None
         self._handle_counter = 0
         self._pending_requests: Dict[int, asyncio.Future] = {}
         self._subscriptions: Dict[Tuple[int, int], Callable] = {}
@@ -273,7 +273,10 @@ class IS12Client:
         if "error" in response:
             raise Exception(f"Get members failed: {response['error']}")
         
-        properties_data = response['result']['value']['properties']
+        try:
+            properties_data = response['result']['value']['properties']
+        except KeyError as e:
+            raise Exception(f"Unexpected class descriptor response for {block.role}: missing key {e}") from e
 
         properties = []
         for property_data in properties_data:
@@ -449,6 +452,8 @@ class DeviceNavigator:
             List of Sender Monitor BlockMember Objects
         """
         sender_block = self.client.find_member_by_role(self.root_members, "senders")
+        if not sender_block:
+            return []
 
         sender_block_members = await self.client.get_block_members(sender_block.oid)
         sender_monitors = self.client.find_members_by_class(sender_block_members, [1, 2, 2, 2])
@@ -470,6 +475,8 @@ class DeviceNavigator:
             List of Receiver Monitor BlockMember objects
         """
         receiver_block = self.client.find_member_by_role(self.root_members, "receivers")
+        if not receiver_block:
+            return []
 
         receiver_block_members = await self.client.get_block_members(receiver_block.oid)
         receiver_monitors = self.client.find_members_by_class(receiver_block_members, [1, 2, 2, 1])
