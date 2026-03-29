@@ -201,6 +201,9 @@ async def serve_metrics(target: str):
     try:
         output = await update_nmos_metrics(target_ws_url)
         return Response(content=output, media_type=CONTENT_TYPE_LATEST)
+    except (ConnectionRefusedError, asyncio.TimeoutError, OSError) as e:
+        logger.error(f"Could not connect to IS-12 endpoint {target_ws_url}: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not connect to IS-12 endpoint {target_ws_url}: {e}")
     except Exception as e:
         logger.exception(f"Internal error probing {target}")
         return Response(content=f"Error probing target: {e}", status_code=500, media_type="text/plain")
