@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from typing import Dict, List, Optional, Any, Callable, Tuple
+from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass
 from enum import IntEnum
 import websockets
@@ -16,6 +16,9 @@ class MessageType(IntEnum):
     COMMAND = 0
     COMMAND_RESPONSE = 1
     NOTIFICATION = 2
+    SUBSCRIPTION = 3
+    SUBSCRIPTION_RESPONSE = 4
+    ERROR = 5
 
 
 class ClassLevel(IntEnum):
@@ -78,13 +81,20 @@ class IS12Client:
         self.ws: Optional[ClientConnection] = None
         self._handle_counter = 0
         self._pending_requests: Dict[int, asyncio.Future] = {}
-        self._subscriptions: Dict[Tuple[int, int], Callable] = {}
+        self.on_notification: Optional[Callable[[int, Dict, int, Any], None]] = None
+        self._subscribed_oids: set = set()
+        self._subscription_future: Optional[asyncio.Future] = None
+        self._subscription_lock = asyncio.Lock()
         self._members_cache: Dict[int, List[BlockMember]] = {}
         self._receive_task: Optional[asyncio.Task] = None
         
+    def is_connected(self) -> bool:
+        """Check whether the WebSocket connection is open"""
+        return self.ws is not None and getattr(self.ws, 'state', None) == 1
+
     async def connect(self):
         """Establish WebSocket connection"""
-        if self.ws and getattr(self.ws, 'state', None) == 1:
+        if self.is_connected():
             logger.warning("WebSocket is already connected.")
             return
 
@@ -137,17 +147,97 @@ class IS12Client:
             pass
         except Exception as e:
             logger.error(f"Error in receive loop: {e}")
-            
+            try:
+                await self.ws.close()
+            except Exception:
+                pass
+
     async def _handle_response(self, message: Dict):
-        """Handle command responses"""
+        """Handle command responses, notifications and subscription responses"""
+        message_type = message.get("messageType")
+
+        if message_type == MessageType.NOTIFICATION:
+            self._handle_notifications(message.get("notifications", []))
+            return
+
+        if message_type == MessageType.SUBSCRIPTION_RESPONSE:
+            future = self._subscription_future
+            if future and not future.done():
+                future.set_result(message.get("subscriptions", []))
+            return
+
+        if message_type == MessageType.ERROR:
+            logger.error(f"IS-12 protocol error: {message}")
+            return
+
         responses = message.get("responses", [])
-        
+
         for response in responses:
             handle = response.get("handle")
             if handle in self._pending_requests:
                 future = self._pending_requests.pop(handle)
                 if not future.cancelled():
                     future.set_result(response)
+
+    def _handle_notifications(self, notifications: List[Dict]):
+        """Route PropertyChanged notifications to the on_notification callback"""
+        for notification in notifications:
+            event_id = notification.get("eventId", {})
+            if event_id != {"level": 1, "index": 1}:  # NcObject PropertyChanged
+                logger.debug(f"Ignoring notification with eventId {event_id}")
+                continue
+
+            event_data = notification.get("eventData", {})
+            change_type = event_data.get("changeType")
+            if change_type != 0:  # only ValueChanged, no sequence changes
+                logger.debug(f"Ignoring notification with changeType {change_type}")
+                continue
+
+            if not self.on_notification:
+                continue
+
+            try:
+                self.on_notification(
+                    notification.get("oid"),
+                    event_data.get("propertyId"),
+                    change_type,
+                    event_data.get("value")
+                )
+            except Exception as e:
+                logger.error(f"Error in notification callback: {e}")
+
+    async def subscribe(self, oids: List[int], timeout: float = 10.0) -> List[int]:
+        """
+        Subscribe to property changed events for given oids
+
+        Args:
+            oids: Object ids to subscribe to
+            timeout: Maximum time to wait for the subscription response
+
+        Returns:
+            List of oids the device confirmed subscription for
+        """
+        async with self._subscription_lock:
+            self._subscribed_oids |= set(oids)
+
+            message = {
+                "messageType": MessageType.SUBSCRIPTION,
+                "subscriptions": sorted(self._subscribed_oids)
+            }
+
+            self._subscription_future = asyncio.Future()
+            await self.ws.send(json.dumps(message))
+
+            try:
+                confirmed = await asyncio.wait_for(self._subscription_future, timeout=timeout)
+            except asyncio.TimeoutError:
+                logger.error(f"Subscription request timed out after {timeout}s")
+                raise
+            finally:
+                self._subscription_future = None
+
+            logger.info(f"Subscribed to {len(confirmed)} objects")
+            return confirmed
                     
     async def _send_command(self, commands: List[Dict], timeout: float = 10.0) -> List[Dict]:
         """
@@ -410,6 +500,7 @@ class IS12Client:
             if "error" in response:
                 logger.warning(f"Error fetching {prop.name}: {response['error']}")
                 result[prop.name] = {"error": response["error"]}
+                prop.value = {"error": response["error"]}
             else:
                 value = response.get("result", {}).get("value")
                 result[prop.name] = value

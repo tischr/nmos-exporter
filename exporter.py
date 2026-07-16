@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import re
 import logging
 import httpx
@@ -6,6 +7,7 @@ import json
 import os
 import time
 
+from dataclasses import dataclass
 from fastapi import FastAPI, Request, Response, HTTPException
 from contextlib import asynccontextmanager
 from urllib.parse import urljoin
@@ -22,40 +24,116 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 CONNECTION_TTL = int(os.getenv('CONNECTION_TTL', '300')) # 5 minutes default
+REDISCOVERY_INTERVAL = int(os.getenv('REDISCOVERY_INTERVAL', '600')) # 10 minutes default, 0 disables
+
+
+class DiscoveryError(Exception):
+    """Raised when the IS-12 endpoint could not be discovered via the Node API."""
+
+
+@dataclass
+class TargetState:
+    """Subscription-fed state for one probe target."""
+    client: IS12Client
+    ws_url: str
+    monitors: list
+    monitors_by_oid: dict
+    subscribed_oids: list
+    created_at: float
+
+
+def handle_notification(state: TargetState, oid: int, property_id: dict, change_type: int, value):
+    """Update the cached property value for a PropertyChanged notification."""
+    monitor = state.monitors_by_oid.get(oid)
+    if not monitor:
+        logger.debug(f"Notification for unknown oid {oid}")
+        return
+
+    for prop in monitor.properties:
+        if prop.id == property_id:
+            prop.value = value
+            logger.info(f"Property update from {state.ws_url}: {monitor.user_label} {prop.name} = {value}")
+            return
+
+    logger.debug(f"Notification for unknown property {property_id} on oid {oid}")
+
 
 class ClientCache:
-    """Cache for IS12Client connections to avoid repeated handshakes."""
-    def __init__(self, ttl: int):
-        self.clients = {}
+    """Cache for per-target subscription state to avoid repeated handshakes and polling."""
+    def __init__(self, ttl: int, rediscovery_interval: int = REDISCOVERY_INTERVAL):
+        self.states = {}
         self.ttl = ttl
+        self.rediscovery_interval = rediscovery_interval
+        self._locks = {}
 
-    async def get_client(self, ws_url: str) -> IS12Client:
-        now = time.time()
-        if ws_url in self.clients:
-            client, last_used = self.clients[ws_url]
-            if client.ws and getattr(client.ws, 'state', None) == 1:
-                self.clients[ws_url] = (client, now)
-                return client
-            else:
-                await client.disconnect()
-        
+    async def get_state(self, target: str) -> TargetState:
+        if target not in self._locks:
+            self._locks[target] = asyncio.Lock()
+
+        async with self._locks[target]:
+            now = time.time()
+            if target in self.states:
+                state, last_used = self.states[target]
+                rediscovery_due = (
+                    self.rediscovery_interval > 0
+                    and now - state.created_at > self.rediscovery_interval
+                )
+                if state.client.is_connected() and not rediscovery_due:
+                    self.states[target] = (state, now)
+                    return state
+                else:
+                    await state.client.disconnect()
+                    del self.states[target]
+
+            state = await self._build_state(target)
+            self.states[target] = (state, now)
+            return state
+
+    async def _build_state(self, target: str) -> TargetState:
+        ws_url, error = await get_is12_ws_endpoint(target)
+        if not ws_url:
+            raise DiscoveryError(error)
+
         client = IS12Client(ws_url)
         await client.connect()
-        self.clients[ws_url] = (client, now)
-        return client
+
+        try:
+            navigator = DeviceNavigator(client)
+            await navigator.init()
+            monitors = await navigator.get_all_monitors()
+
+            monitor_data_tasks = [client.get_properties(monitor) for monitor in monitors]
+            await asyncio.gather(*monitor_data_tasks)
+
+            state = TargetState(
+                client=client,
+                ws_url=ws_url,
+                monitors=monitors,
+                monitors_by_oid={monitor.oid: monitor for monitor in monitors},
+                subscribed_oids=[],
+                created_at=time.time()
+            )
+
+            client.on_notification = functools.partial(handle_notification, state)
+            state.subscribed_oids = await client.subscribe([monitor.oid for monitor in monitors])
+            return state
+        except Exception:
+            await client.disconnect()
+            raise
 
     async def cleanup(self):
         """Close connections that haven't been used for TTL."""
         now = time.time()
         to_remove = []
-        for ws_url, (client, last_used) in self.clients.items():
+        for target, (state, last_used) in self.states.items():
             if now - last_used > self.ttl:
-                logger.info(f"Closing idle connection to {ws_url}")
-                await client.disconnect()
-                to_remove.append(ws_url)
-        
-        for ws_url in to_remove:
-            del self.clients[ws_url]
+                logger.info(f"Closing idle connection to {state.ws_url}")
+                await state.client.disconnect()
+                to_remove.append(target)
+
+        for target in to_remove:
+            del self.states[target]
+            self._locks.pop(target, None)
 
 client_cache = ClientCache(CONNECTION_TTL)
 
@@ -106,74 +184,77 @@ async def get_is12_ws_endpoint(device_address: str) -> tuple[str | None, str | N
         return None, f"Failed to query Node API on {device_address}: {e}"
 
 
-async def update_nmos_metrics(target_ws_url):
-    # Fetches and Updates BCP-008 metric
+def render_metrics(state: TargetState):
     registry = CollectorRegistry(auto_describe=True)
     gauge_cache = {}
-    info_cache = {}
 
-    try:
-        client = await client_cache.get_client(target_ws_url)
-        navigator = DeviceNavigator(client)
-        await navigator.init()
-        monitor_blocks = await navigator.get_all_monitors()
+    subscription_active = Gauge(
+        'nmos_exporter_subscription_active',
+        'Whether the exporter holds an active IS-12 subscription covering all monitors',
+        registry=registry
+    )
+    all_subscribed = set(state.subscribed_oids) >= {monitor.oid for monitor in state.monitors}
+    subscription_active.set(1 if state.client.is_connected() and all_subscribed else 0)
 
-        monitor_data_tasks = [client.get_properties(monitor) for monitor in monitor_blocks]
-        all_monitor_values = await asyncio.gather(*monitor_data_tasks)
+    monitors_discovered = Gauge(
+        'nmos_exporter_monitors_discovered',
+        'Number of BCP-008 status monitors discovered on the target',
+        registry=registry
+    )
+    monitors_discovered.set(len(state.monitors))
 
-        for monitor, monitor_values in zip(monitor_blocks, all_monitor_values):
-            if monitor.class_id == [1, 2, 2, 2]:
-                role = 'sender'
-            elif monitor.class_id == [1, 2, 2, 1]:
-                role = 'receiver'
-            else:
+    for monitor in state.monitors:
+        if monitor.class_id == [1, 2, 2, 2]:
+            role = 'sender'
+        elif monitor.class_id == [1, 2, 2, 1]:
+            role = 'receiver'
+        else:
+            continue
+
+        for prop in monitor.properties:
+            key = prop.name
+            value = prop.value
+
+            if isinstance(value, dict) and "error" in value:
                 continue
 
-            for key, value in monitor_values.items():
-                if isinstance(value, dict) and "error" in value:
-                    continue
+            metric_name = sanitize_metric_name(key)
+            metric_full_name = f'nmos_{metric_name}'
 
-                metric_name = sanitize_metric_name(key)
-                metric_full_name = f'nmos_{metric_name}'
+            if isinstance(value, (int, float, bool)):
+                description = f'NMOS IS-12 bool value: {key}' if isinstance(value, bool) else f'NMOS IS-12 metric: {key}'
 
-                if isinstance(value, (int, float, bool)):
-                    description = f'NMOS IS-12 bool value: {key}' if isinstance(value, bool) else f'NMOS IS-12 metric: {key}'
-                    
-                    if metric_full_name not in gauge_cache:
-                        gauge = Gauge(
-                            metric_full_name,
-                            description,
-                            labelnames=['role', 'monitor_label'],
-                            registry=registry
-                        )
-                        gauge_cache[metric_full_name] = gauge
-                    else:
-                        gauge = gauge_cache[metric_full_name]
-                    
-                    gauge_value = (1 if value else 0) if isinstance(value, bool) else value
-                    gauge.labels(role=role, monitor_label=f'{monitor.user_label}').set(gauge_value)
-                
-                if isinstance(value, str):
-                    description = f'NMOS IS-12 string value: {key}'
+                if metric_full_name not in gauge_cache:
+                    gauge = Gauge(
+                        metric_full_name,
+                        description,
+                        labelnames=['role', 'monitor_label'],
+                        registry=registry
+                    )
+                    gauge_cache[metric_full_name] = gauge
+                else:
+                    gauge = gauge_cache[metric_full_name]
 
-                    if metric_full_name not in gauge_cache:
-                        gauge = Gauge(
-                            metric_full_name,
-                            description,
-                            labelnames=['role', 'monitor_label', 'value'],
-                            registry=registry
-                        )
-                        gauge_cache[metric_full_name] = gauge
-                    else:
-                        gauge = gauge_cache[metric_full_name]
+                gauge_value = (1 if value else 0) if isinstance(value, bool) else value
+                gauge.labels(role=role, monitor_label=f'{monitor.user_label}').set(gauge_value)
 
-                    gauge.labels(role=role, monitor_label=monitor.user_label, value=value).set(1)
+            if isinstance(value, str):
+                description = f'NMOS IS-12 string value: {key}'
 
-        return generate_latest(registry)
-    
-    except Exception as e:
-        logger.error(f"Error updating metrics for {target_ws_url}: {e}")
-        raise
+                if metric_full_name not in gauge_cache:
+                    gauge = Gauge(
+                        metric_full_name,
+                        description,
+                        labelnames=['role', 'monitor_label', 'value'],
+                        registry=registry
+                    )
+                    gauge_cache[metric_full_name] = gauge
+                else:
+                    gauge = gauge_cache[metric_full_name]
+
+                gauge.labels(role=role, monitor_label=monitor.user_label, value=value).set(1)
+
+    return generate_latest(registry)
 
 
 @asynccontextmanager
@@ -192,18 +273,16 @@ app = FastAPI(title="NMOS BCP-008 Exporter", lifespan=lifespan)
 async def serve_metrics(target: str):
     if not target:
         raise HTTPException(status_code=400, detail="Missing target query parameter.")
-    
-    target_ws_url, error = await get_is12_ws_endpoint(target)
 
-    if not target_ws_url:
-        raise HTTPException(status_code=400, detail=error)
-    
     try:
-        output = await update_nmos_metrics(target_ws_url)
+        state = await client_cache.get_state(target)
+        output = render_metrics(state)
         return Response(content=output, media_type=CONTENT_TYPE_LATEST)
+    except DiscoveryError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except (ConnectionRefusedError, asyncio.TimeoutError, OSError) as e:
-        logger.error(f"Could not connect to IS-12 endpoint {target_ws_url}: {e}")
-        raise HTTPException(status_code=502, detail=f"Could not connect to IS-12 endpoint {target_ws_url}: {e}")
+        logger.error(f"Could not connect to IS-12 endpoint on {target}: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not connect to IS-12 endpoint on {target}: {e}")
     except Exception as e:
         logger.exception(f"Internal error probing {target}")
         return Response(content=f"Error probing target: {e}", status_code=500, media_type="text/plain")
