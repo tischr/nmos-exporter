@@ -41,7 +41,11 @@ This option is useful for local development, or envrionments where Docker is not
 
 ## Usage
 
-The exporter queries the NMOS nodes at scrape time, using the `target` parameter (similar to the snmp-exporter). An example prometheus.yml as well as a Grafana dashboard to get started can be found under [examples/](examples/). 
+The exporter addresses NMOS nodes, using the `target` parameter. Prometheus scrapes the exporter and get's the cached values. An example prometheus.yml as well as a Grafana dashboard to get started can be found under [examples/](examples/). 
+
+### How it works
+
+ On the first scrape of a target it discovers the IS-12 endpoint via the Node API, connects, reads all monitor properties once, and subscribes to property changed events. Property values are then kept up to date from notifications, and subsequent scrapes render the cached values without causing any traffic on the NMOS node. If the websocket connection is lost, the next scrape reconnects, rediscovers and resubscribes (or fails while the node is unreachable). The `nmos_exporter_subscription_active` metric reports whether the subscription is healthy.
 
 ```yml
 scrape_configs:
@@ -68,7 +72,8 @@ The following environment variables can be used to configure the exporter:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CONNECTION_TTL` | `300` | Seconds to keep idle ws connections open |
+| `CONNECTION_TTL` | `300` | Seconds to keep unscraped ws connections (and their subscriptions) open. Should be larger than Prometheus scrape interval |
+| `REDISCOVERY_INTERVAL` | `600` | Seconds after which a target is fully rediscovered and resubscribed, to pick up added or removed monitors. `0` disables periodic rediscovery |
 
 ## Contributing
 
