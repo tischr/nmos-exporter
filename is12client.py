@@ -2,13 +2,29 @@ import asyncio
 import json
 import logging
 from typing import Dict, List, Optional, Any, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import IntEnum
 import websockets
 from websockets.asyncio.client import ClientConnection
 
 
 logger = logging.getLogger(__name__)
+
+
+ROOT_BLOCK_OID = 1
+NC_CLASS_MANAGER_CLASS_ID = [1, 3, 2]
+NC_STATUS_MONITOR_CLASS_ID = [1, 2, 2]
+NC_RECEIVER_MONITOR_CLASS_ID = [1, 2, 2, 1]
+NC_SENDER_MONITOR_CLASS_ID = [1, 2, 2, 2]
+
+
+def monitor_role(class_id: List[int]) -> Optional[str]:
+    """Classify a monitor by its (possibly derived) class id."""
+    if class_id[:len(NC_SENDER_MONITOR_CLASS_ID)] == NC_SENDER_MONITOR_CLASS_ID:
+        return "sender"
+    if class_id[:len(NC_RECEIVER_MONITOR_CLASS_ID)] == NC_RECEIVER_MONITOR_CLASS_ID:
+        return "receiver"
+    return None
 
 
 class MessageType(IntEnum):
@@ -30,11 +46,11 @@ class ClassLevel(IntEnum):
 
 
 class MethodId(IntEnum):
-    """Method Indices"""
-    GET = 1
-    SET = 2
-    GET_MEMBER_DESCRIPTORS = 1
-    GET_CLASS_DESCRIPTOR = 1
+    """Method Indices (within the class level that defines the method)"""
+    GET = 1                        
+    SET = 2                        
+    FIND_MEMBERS_BY_CLASS_ID = 4   
+    GET_CLASS_DESCRIPTOR = 1       
 
 @dataclass
 class Property:
@@ -85,7 +101,6 @@ class IS12Client:
         self._subscribed_oids: set = set()
         self._subscription_future: Optional[asyncio.Future] = None
         self._subscription_lock = asyncio.Lock()
-        self._members_cache: Dict[int, List[BlockMember]] = {}
         self._receive_task: Optional[asyncio.Task] = None
         
     def is_connected(self) -> bool:
@@ -279,46 +294,48 @@ class IS12Client:
             logger.error(f"Command timed out after {timeout}s")
             raise
     
-    async def get_block_members(self, block_oid: int, use_cache: bool = True) -> List[BlockMember]:
+    async def find_members_by_class_id(
+        self,
+        block_oid: int,
+        class_id: List[int],
+        include_derived: bool = True,
+        recurse: bool = True,
+    ) -> List[BlockMember]:
         """
-        Get members of a block (children objects)
-        
+        Find block members of a given control class using 2m4.
+
         Args:
-            block_oid: Block object identifier
-            use_cache: Use cached result if available
-            
+            block_oid: Block to search from (use ROOT_BLOCK_OID for the whole model)
+            class_id: Control class id to match
+            include_derived: Also match subclasses of class_id
+            recurse: Descend into nested blocks
+
         Returns:
-            List of BlockMember objects
+            List of BlockMember objects (NcBlockMemberDescriptors)
         """
-        if use_cache and block_oid in self._members_cache:
-            return self._members_cache[block_oid]
-            
         commands = [{
             "oid": block_oid,
             "methodId": {
                 "level": ClassLevel.NC_BLOCK,
-                "index": MethodId.GET_MEMBER_DESCRIPTORS
+                "index": MethodId.FIND_MEMBERS_BY_CLASS_ID
             },
             "arguments": {
-                "id": {
-                    "level": ClassLevel.NC_BLOCK,
-                    "index": 2  # members property (2p2)
-                }
+                "classId": class_id,
+                "includeDerived": include_derived,
+                "recurse": recurse
             }
         }]
-        
+
         responses = await self._send_command(commands)
         response = responses[0]
-        
+
         if "error" in response:
-            raise Exception(f"Get members failed: {response['error']}")
-            
-        result = response.get("result", {})
-        members_data = result.get("value", [])
-        
-        members = []
-        for member_data in members_data:
-            member = BlockMember(
+            raise Exception(f"FindMembersByClassId failed: {response['error']}")
+
+        members_data = response.get("result", {}).get("value", [])
+
+        members = [
+            BlockMember(
                 oid=member_data.get("oid"),
                 role=member_data.get("role", ""),
                 class_id=member_data.get("classId", []),
@@ -328,22 +345,22 @@ class IS12Client:
                 constant_oid=member_data.get("constantOid", True),
                 owner=member_data.get("owner", block_oid)
             )
-            members.append(member)
-            
-        self._members_cache[block_oid] = members
-        logger.info(f"Found {len(members)} members in block {block_oid}")
+            for member_data in members_data
+        ]
+
+        logger.info(f"Found {len(members)} members of class {class_id} under block {block_oid}")
         return members
-    
-    async def gather_block_properties(self, class_manager_oid: int, block: BlockMember) -> List[Property]:
+
+    async def get_class_property_descriptors(self, class_manager_oid: int, class_id: List[int]) -> List[Property]:
         """
-        Gets all properties for a BlockMember object
+        Get the property descriptors of a control class from the class manager.
 
-        Args: 
-            class_manager_oid: The object id of the class manager
-            block: The BlockMember object to use for Property lookup
+        Args:
+            class_manager_oid: Object id of the NcClassManager
+            class_id: Control class id to describe
 
-        Returns: 
-            List of Property Objects that is attached to BlockMember
+        Returns:
+            List of Property descriptors (with value unset)
         """
         commands = [{
             "oid": class_manager_oid,
@@ -352,25 +369,24 @@ class IS12Client:
                 "index": MethodId.GET_CLASS_DESCRIPTOR
             },
             "arguments": {
-                "classId": block.class_id, 
+                "classId": class_id,
                 "includeInherited": True
             }
         }]
-        
+
         responses = await self._send_command(commands)
         response = responses[0]
 
         if "error" in response:
-            raise Exception(f"Get members failed: {response['error']}")
-        
+            raise Exception(f"GetControlClass failed: {response['error']}")
+
         try:
             properties_data = response['result']['value']['properties']
         except KeyError as e:
-            raise Exception(f"Unexpected class descriptor response for {block.role}: missing key {e}") from e
+            raise Exception(f"Unexpected class descriptor response for class {class_id}: missing key {e}") from e
 
-        properties = []
-        for property_data in properties_data:
-            prop = Property(
+        properties = [
+            Property(
                 description=property_data.get("description"),
                 id=property_data.get("id"),
                 name=property_data.get("name"),
@@ -381,88 +397,12 @@ class IS12Client:
                 constraints=property_data.get("constraints"),
                 isDeprecated=property_data.get("isDeprecated")
             )
-            properties.append(prop)
+            for property_data in properties_data
+        ]
 
-        block.properties = properties
+        logger.info(f"Found {len(properties)} properties for class {class_id}")
+        return properties
 
-        logger.info(f"Found {len(properties)} properties in block {block.description}")
-        
-        return properties 
-     
-    def find_member_by_role(self, members: List[BlockMember], role: str) -> Optional[BlockMember]:
-        """
-        Find a member by its role name
-        
-        Args:
-            members: List of members to search
-            role: Role name to find
-            
-        Returns:
-            BlockMember or None if not found
-        """
-        for member in members:
-            if member.role == role:
-                return member
-        return None
-    
-    def find_members_by_class(self, members: List[BlockMember], class_id: List[int]) -> List[BlockMember]:
-        """
-        Find all members with a specific class ID
-        
-        Args:
-            members: List of members to search
-            class_id: Class ID to match
-            
-        Returns:
-            List of matching BlockMembers
-        """
-        return [m for m in members if m.class_id == class_id]
-        
-    async def get_property(self, block: BlockMember, property_name: str) -> Any:
-        """
-        Get a single property value
-        
-        Args:
-            block: BlockMember object to get property for
-            
-        Returns:
-            Property value or None
-        """
-        found_prop = None
-        for prop in block.properties:
-            if property_name == prop.name:
-                found_prop = prop
-                break
-        
-        if not found_prop:
-            logger.warning(f"Could not find property: {property_name} in block: {block.role}") 
-            return None
-
-        level = found_prop.id['level']
-        index = found_prop.id['index']
-
-        commands = [{
-            "oid": block.oid,
-            "methodId": {
-                "level": ClassLevel.NC_OBJECT,
-                "index": MethodId.GET
-            },
-            "arguments": {
-                "id": {
-                    "level": level,
-                    "index": index
-                }
-            }
-        }]
-        
-        responses = await self._send_command(commands)
-        response = responses[0]
-        
-        if "error" in response:
-            raise Exception(f"GetMember failed: {response['error']}")
-            
-        return response.get("result", {}).get("value")
-        
     async def get_properties(self, block: BlockMember) -> Dict[str, Any]:
         """
         Get multiple properties at once
@@ -513,82 +453,47 @@ class DeviceNavigator:
     """
     Helper class for navigating IS-12 device structure
     """
-    
+
     def __init__(self, client: IS12Client):
         self.client = client
-        self.root_members = None 
-        self.class_manager = None
+        self.class_manager_oid = None
 
     async def init(self):
-        await self._get_root_members()
-        await self._get_class_manager()
-        
-    async def _get_root_members(self):
-        if self.root_members == None: 
-            self.root_members = await self.client.get_block_members(1)
+        """Locate the class manager, needed to describe monitor classes."""
+        managers = await self.client.find_members_by_class_id(
+            ROOT_BLOCK_OID, NC_CLASS_MANAGER_CLASS_ID
+        )
+        if not managers:
+            raise Exception("No NcClassManager found in the device model")
+        self.class_manager_oid = managers[0].oid
 
-        return self.root_members
-
-    async def _get_class_manager(self):
-        if self.class_manager == None:        
-            self.class_manager = self.client.find_member_by_role(self.root_members, "ClassManager")
-
-        return self.class_manager
-
-    async def get_sender_monitors(self):
+    async def get_all_monitors(self) -> List[BlockMember]:
         """
-        Discovers Sender Monitor Blocks by class id and gathers properties for each Block
+        Discover every BCP-008 status monitor in the device model and attach
+        their property descriptors.
 
         Returns:
-            List of Sender Monitor BlockMember Objects
+            List of monitor BlockMember objects with populated properties
         """
-        sender_block = self.client.find_member_by_role(self.root_members, "senders")
-        if not sender_block:
+        monitors = await self.client.find_members_by_class_id(
+            ROOT_BLOCK_OID, NC_STATUS_MONITOR_CLASS_ID
+        )
+        if not monitors:
             return []
 
-        sender_block_members = await self.client.get_block_members(sender_block.oid)
-        sender_monitors = self.client.find_members_by_class(sender_block_members, [1, 2, 2, 2])
+        # Fetch each distinct monitor class descriptor exactly once.
+        distinct_classes = {tuple(m.class_id): m.class_id for m in monitors}
+        descriptor_lists = await asyncio.gather(*[
+            self.client.get_class_property_descriptors(self.class_manager_oid, class_id)
+            for class_id in distinct_classes.values()
+        ])
+        properties_by_class = dict(zip(distinct_classes.keys(), descriptor_lists))
 
-        # Gather properties for all monitors in parallel
-        tasks = [
-            self.client.gather_block_properties(self.class_manager.oid, monitor)
-            for monitor in sender_monitors
-        ]
-        await asyncio.gather(*tasks)
+        # Give every monitor its own Property instances so per-instance values
+        # (and notification updates) don't leak across shared descriptors.
+        for monitor in monitors:
+            monitor.properties = [
+                replace(prop) for prop in properties_by_class[tuple(monitor.class_id)]
+            ]
 
-        return sender_monitors
-
-    async def get_receiver_monitors(self):
-        """
-        Discovers Receiver Monitor Blocks by Class ID and gathers properties for each Block
-        
-        Returns:
-            List of Receiver Monitor BlockMember objects
-        """
-        receiver_block = self.client.find_member_by_role(self.root_members, "receivers")
-        if not receiver_block:
-            return []
-
-        receiver_block_members = await self.client.get_block_members(receiver_block.oid)
-        receiver_monitors = self.client.find_members_by_class(receiver_block_members, [1, 2, 2, 1])
-
-        # Gather properties for all monitors in parallel
-        tasks = [
-            self.client.gather_block_properties(self.class_manager.oid, monitor)
-            for monitor in receiver_monitors
-        ]
-        await asyncio.gather(*tasks)
-
-        return receiver_monitors
-
-    async def get_all_monitors(self):
-        """
-        Discovers Monitor Blocks by Class ID and gathers properties for each Block
-        
-        Returns:
-            List of all Monitor BlockMember objects
-        """
-        sender_monitors = await self.get_sender_monitors()
-        receiver_monitors = await self.get_receiver_monitors()
-
-        return sender_monitors + receiver_monitors
+        return monitors

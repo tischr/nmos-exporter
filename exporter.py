@@ -8,13 +8,13 @@ import os
 import time
 
 from dataclasses import dataclass
-from fastapi import FastAPI, Request, Response, HTTPException
+from fastapi import FastAPI, Response, HTTPException
 from contextlib import asynccontextmanager
 from urllib.parse import urljoin
-from prometheus_client import Gauge, Info, generate_latest, CollectorRegistry, CONTENT_TYPE_LATEST
+from prometheus_client import Gauge, generate_latest, CollectorRegistry, CONTENT_TYPE_LATEST
 import uvicorn
 
-from is12client import IS12Client, DeviceNavigator
+from is12client import IS12Client, DeviceNavigator, monitor_role
 
 # Configure logging
 logging.basicConfig(
@@ -204,11 +204,8 @@ def render_metrics(state: TargetState):
     monitors_discovered.set(len(state.monitors))
 
     for monitor in state.monitors:
-        if monitor.class_id == [1, 2, 2, 2]:
-            role = 'sender'
-        elif monitor.class_id == [1, 2, 2, 1]:
-            role = 'receiver'
-        else:
+        role = monitor_role(monitor.class_id)
+        if role is None:
             continue
 
         for prop in monitor.properties:
