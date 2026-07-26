@@ -3,7 +3,28 @@ import json
 import pytest
 from unittest.mock import AsyncMock
 
-from is12client import IS12Client, MessageType
+from is12client import IS12Client, MessageType, nmos_touchpoint
+
+
+def test_nmos_touchpoint_extracts_nmos_resource():
+    tp = [{"contextNamespace": "x-nmos",
+           "resource": {"resourceType": "receiver", "id": "rx-uuid-1"}}]
+    assert nmos_touchpoint(tp) == {"resourceType": "receiver", "id": "rx-uuid-1"}
+
+
+def test_nmos_touchpoint_ignores_non_nmos_entries():
+    tp = [
+        {"contextNamespace": "x-vendor", "resource": {"id": "other"}},
+        {"contextNamespace": "x-nmos",
+         "resource": {"resourceType": "sender", "id": "tx-uuid-1"}},
+    ]
+    assert nmos_touchpoint(tp) == {"resourceType": "sender", "id": "tx-uuid-1"}
+
+
+@pytest.mark.parametrize("value", [None, [], [{"contextNamespace": "x-vendor"}],
+                                   [{"contextNamespace": "x-nmos", "resource": {}}]])
+def test_nmos_touchpoint_returns_none_without_nmos_resource(value):
+    assert nmos_touchpoint(value) is None
 
 
 def make_notification(oid, property_id, value, event_id=None, change_type=0):

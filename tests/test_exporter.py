@@ -31,6 +31,13 @@ def make_state(monitors, connected=True, subscribed_oids=None):
     )
 
 
+def make_touchpoint(resource_type, resource_id):
+    return make_property("touchpoints", 1, 7, [
+        {"contextNamespace": "x-nmos",
+         "resource": {"resourceType": resource_type, "id": resource_id}}
+    ])
+
+
 def make_receiver_monitor():
     return BlockMember(
         oid=10, role="mon1", class_id=[1, 2, 2, 1], user_label="rx 1",
@@ -41,6 +48,7 @@ def make_receiver_monitor():
             make_property("overallStatusMessage", 3, 2, "PacketsLost"),
             make_property("brokenProp", 5, 1, {"error": "NotImplemented"}),
             make_property("emptyProp", 5, 2, None),
+            make_touchpoint("receiver", "rx-uuid-1"),
         ]
     )
 
@@ -69,24 +77,33 @@ def test_render_metrics_from_cached_values():
     receiver = make_receiver_monitor()
     sender = BlockMember(
         oid=20, role="mon2", class_id=[1, 2, 2, 2], user_label="tx 1",
+        properties=[
+            make_property("overallStatus", 3, 1, 1),
+            make_touchpoint("sender", "tx-uuid-1"),
+        ]
+    )
+    no_touchpoint = BlockMember(
+        oid=40, role="mon3", class_id=[1, 2, 2, 1], user_label="rx 2",
         properties=[make_property("overallStatus", 3, 1, 1)]
     )
     other = BlockMember(
         oid=30, role="block", class_id=[1, 2], user_label="ignored",
         properties=[make_property("overallStatus", 3, 1, 1)]
     )
-    output = render_metrics(make_state([receiver, sender, other])).decode()
+    output = render_metrics(make_state([receiver, sender, no_touchpoint, other])).decode()
 
-    assert 'nmos_overall_status{monitor_label="rx 1",role="receiver"} 2.0' in output
-    assert 'nmos_packets_lost{monitor_label="rx 1",role="receiver"} 17.5' in output
-    assert 'nmos_signal_present{monitor_label="rx 1",role="receiver"} 1.0' in output
-    assert 'nmos_overall_status_message{monitor_label="rx 1",role="receiver",value="PacketsLost"} 1.0' in output
-    assert 'nmos_overall_status{monitor_label="tx 1",role="sender"} 1.0' in output
+    assert 'nmos_overall_status{monitor_label="rx 1",nmos_resource_id="rx-uuid-1",role="receiver"} 2.0' in output
+    assert 'nmos_packets_lost{monitor_label="rx 1",nmos_resource_id="rx-uuid-1",role="receiver"} 17.5' in output
+    assert 'nmos_signal_present{monitor_label="rx 1",nmos_resource_id="rx-uuid-1",role="receiver"} 1.0' in output
+    assert 'nmos_overall_status_message{monitor_label="rx 1",nmos_resource_id="rx-uuid-1",role="receiver",value="PacketsLost"} 1.0' in output
+    assert 'nmos_overall_status{monitor_label="tx 1",nmos_resource_id="tx-uuid-1",role="sender"} 1.0' in output
+    # Monitor without a touchpoint still exports, with empty resource id label
+    assert 'nmos_overall_status{monitor_label="rx 2",nmos_resource_id="",role="receiver"} 1.0' in output
     assert "broken_prop" not in output
     assert "empty_prop" not in output
     assert "ignored" not in output
     assert "nmos_exporter_subscription_active 1.0" in output
-    assert "nmos_exporter_monitors_discovered 3.0" in output
+    assert "nmos_exporter_monitors_discovered 4.0" in output
 
 
 def test_render_metrics_reports_inactive_subscription():
@@ -107,14 +124,14 @@ async def test_probe_reflects_notification_update():
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.get("/probe?target=example:80")
             assert resp.status_code == 200
-            assert 'nmos_overall_status{monitor_label="rx 1",role="receiver"} 2.0' in resp.text
+            assert 'nmos_overall_status{monitor_label="rx 1",nmos_resource_id="rx-uuid-1",role="receiver"} 2.0' in resp.text
 
             handle_notification(state, 10, {"level": 3, "index": 1}, 0, 0)
             handle_notification(state, 10, {"level": 3, "index": 2}, 0, "Healthy")
 
             resp = await client.get("/probe?target=example:80")
             assert resp.status_code == 200
-            assert 'nmos_overall_status{monitor_label="rx 1",role="receiver"} 0.0' in resp.text
+            assert 'nmos_overall_status{monitor_label="rx 1",nmos_resource_id="rx-uuid-1",role="receiver"} 0.0' in resp.text
             assert 'value="Healthy"' in resp.text
             assert 'value="PacketsLost"' not in resp.text
 

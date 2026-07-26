@@ -14,7 +14,7 @@ from urllib.parse import urljoin
 from prometheus_client import Gauge, generate_latest, CollectorRegistry, CONTENT_TYPE_LATEST
 import uvicorn
 
-from is12client import IS12Client, DeviceNavigator, monitor_role
+from is12client import IS12Client, DeviceNavigator, monitor_role, monitor_nmos_resource
 
 # Configure logging
 logging.basicConfig(
@@ -208,6 +208,8 @@ def render_metrics(state: TargetState):
         if role is None:
             continue
 
+        resource_id = monitor_nmos_resource(monitor).get("id", "")
+
         for prop in monitor.properties:
             key = prop.name
             value = prop.value
@@ -225,7 +227,7 @@ def render_metrics(state: TargetState):
                     gauge = Gauge(
                         metric_full_name,
                         description,
-                        labelnames=['role', 'monitor_label'],
+                        labelnames=['role', 'monitor_label', 'nmos_resource_id'],
                         registry=registry
                     )
                     gauge_cache[metric_full_name] = gauge
@@ -233,7 +235,11 @@ def render_metrics(state: TargetState):
                     gauge = gauge_cache[metric_full_name]
 
                 gauge_value = (1 if value else 0) if isinstance(value, bool) else value
-                gauge.labels(role=role, monitor_label=f'{monitor.user_label}').set(gauge_value)
+                gauge.labels(
+                    role=role,
+                    monitor_label=f'{monitor.user_label}',
+                    nmos_resource_id=resource_id
+                ).set(gauge_value)
 
             if isinstance(value, str):
                 description = f'NMOS IS-12 string value: {key}'
@@ -242,14 +248,19 @@ def render_metrics(state: TargetState):
                     gauge = Gauge(
                         metric_full_name,
                         description,
-                        labelnames=['role', 'monitor_label', 'value'],
+                        labelnames=['role', 'monitor_label', 'nmos_resource_id', 'value'],
                         registry=registry
                     )
                     gauge_cache[metric_full_name] = gauge
                 else:
                     gauge = gauge_cache[metric_full_name]
 
-                gauge.labels(role=role, monitor_label=monitor.user_label, value=value).set(1)
+                gauge.labels(
+                    role=role,
+                    monitor_label=monitor.user_label,
+                    nmos_resource_id=resource_id,
+                    value=value
+                ).set(1)
 
     return generate_latest(registry)
 

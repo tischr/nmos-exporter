@@ -17,6 +17,9 @@ NC_STATUS_MONITOR_CLASS_ID = [1, 2, 2]
 NC_RECEIVER_MONITOR_CLASS_ID = [1, 2, 2, 1]
 NC_SENDER_MONITOR_CLASS_ID = [1, 2, 2, 2]
 
+NMOS_CONTEXT_NAMESPACE = "x-nmos"
+TOUCHPOINTS_PROPERTY_ID = {"level": 1, "index": 7}  
+
 
 def monitor_role(class_id: List[int]) -> Optional[str]:
     """Classify a monitor by its (possibly derived) class id."""
@@ -25,6 +28,27 @@ def monitor_role(class_id: List[int]) -> Optional[str]:
     if class_id[:len(NC_RECEIVER_MONITOR_CLASS_ID)] == NC_RECEIVER_MONITOR_CLASS_ID:
         return "receiver"
     return None
+
+
+def nmos_touchpoint(touchpoints_value: Any) -> Optional[Dict[str, str]]:
+    """Return {'resourceType', 'id'} of the NcTouchpointNmos entry or None."""
+    if not isinstance(touchpoints_value, list):
+        return None
+    for tp in touchpoints_value:
+        if isinstance(tp, dict) and tp.get("contextNamespace") == NMOS_CONTEXT_NAMESPACE:
+            resource = tp.get("resource") or {}
+            if resource.get("id"):
+                return {"resourceType": resource.get("resourceType", ""),
+                        "id": resource["id"]}
+    return None
+
+
+def monitor_nmos_resource(monitor: "BlockMember") -> Dict[str, str]:
+    """Return the IS-04 {'resourceType', 'id'} linked via the monitor's touchpoint."""
+    for prop in monitor.properties:
+        if prop.id == TOUCHPOINTS_PROPERTY_ID:
+            return nmos_touchpoint(prop.value) or {}
+    return {}
 
 
 class MessageType(IntEnum):
